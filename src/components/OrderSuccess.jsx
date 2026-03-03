@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 /**
  * OrderSuccess Component
  * Shows order confirmation with Order ID before redirecting to WhatsApp
+ * Supports both solo and group orders
  */
 const OrderSuccess = ({ orderData, onClose }) => {
   useEffect(() => {
@@ -10,6 +11,8 @@ const OrderSuccess = ({ orderData, onClose }) => {
     const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
   }, [onClose]);
+
+  const isGroupOrder = orderData.type === 'group';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 transition-all">
@@ -31,27 +34,50 @@ const OrderSuccess = ({ orderData, onClose }) => {
             </p>
           </div>
 
-          {/* Customer Name */}
-          <div className="bg-blue-50 rounded-xl p-4 border-l-4 border-blue-400">
-            <p className="text-xs text-blue-600 font-semibold mb-1">👤 Customer</p>
-            <p className="text-lg font-bold text-blue-800">{orderData.customerName}</p>
-          </div>
+          {/* Group Order Display */}
+          {isGroupOrder ? (
+            <>
+              {/* Group Members Count */}
+              <div className="bg-blue-50 rounded-xl p-4 border-l-4 border-blue-400">
+                <p className="text-xs text-blue-600 font-semibold mb-1">👥 Group Members</p>
+                <p className="text-lg font-bold text-blue-800">
+                  {orderData.userCount} {orderData.userCount === 1 ? 'person' : 'people'}
+                </p>
+              </div>
 
-          {/* Items Count */}
-          <div className="bg-purple-50 rounded-xl p-4 border-l-4 border-purple-400">
-            <p className="text-xs text-purple-600 font-semibold mb-1">📦 Items</p>
-            <p className="text-lg font-bold text-purple-800">
-              {orderData.items.length} {orderData.items.length === 1 ? 'item' : 'items'}
-            </p>
-          </div>
+              {/* Order Type Badge */}
+              <div className="bg-purple-50 rounded-xl p-4 border-l-4 border-purple-400">
+                <p className="text-xs text-purple-600 font-semibold mb-1">📋 Order Type</p>
+                <p className="text-lg font-bold text-purple-800">Group Order</p>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Customer Name */}
+              <div className="bg-blue-50 rounded-xl p-4 border-l-4 border-blue-400">
+                <p className="text-xs text-blue-600 font-semibold mb-1">👤 Customer</p>
+                <p className="text-lg font-bold text-blue-800">{orderData.customerName}</p>
+              </div>
 
-          {/* Total */}
-          <div className="bg-green-50 rounded-xl p-4 border-l-4 border-green-400">
-            <p className="text-xs text-green-600 font-semibold mb-1">💰 Total</p>
-            <p className="text-2xl font-bold text-green-800">
-              ₦{orderData.total.toLocaleString()}
-            </p>
-          </div>
+              {/* Items Count */}
+              <div className="bg-purple-50 rounded-xl p-4 border-l-4 border-purple-400">
+                <p className="text-xs text-purple-600 font-semibold mb-1">📦 Items</p>
+                <p className="text-lg font-bold text-purple-800">
+                  {orderData.items && orderData.items.length ? `${orderData.items.length} ${orderData.items.length === 1 ? 'item' : 'items'}` : 'N/A'}
+                </p>
+              </div>
+
+              {/* Total */}
+              {orderData.total && (
+                <div className="bg-green-50 rounded-xl p-4 border-l-4 border-green-400">
+                  <p className="text-xs text-green-600 font-semibold mb-1">💰 Total</p>
+                  <p className="text-2xl font-bold text-green-800">
+                    ₦{orderData.total.toLocaleString()}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Info Message */}
           <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-lg text-center">

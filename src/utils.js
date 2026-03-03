@@ -1,4 +1,6 @@
 import { WHATSAPP_CONFIG } from './config';
+import { database } from './firebase';
+import { ref, set, get, update, onValue, off, remove } from 'firebase/database';
 
 /**
  * Generate a unique Order ID in the format: SNK-YYYY-XXXX
@@ -130,63 +132,78 @@ export const getOrderHistory = () => {
 };
 
 /**
- * Create a new group ordering session
+ * Create a new group ordering session (Firebase)
  * @param {string} sessionCode - Unique session code
- * @returns {Object} Session object
+ * @returns {Promise<Object>} Session object
  */
-export const createGroupSession = (sessionCode) => {
-  const session = {
-    code: sessionCode,
-    createdAt: new Date().toISOString(),
-    users: {},
-  };
-  localStorage.setItem(`group_session_${sessionCode}`, JSON.stringify(session));
-  return session;
-};
-
-/**
- * Add user to group session
- * @param {string} sessionCode - Session code
- * @param {string} userName - User's name
- * @returns {boolean} Success status
- */
-export const addUserToSession = (sessionCode, userName) => {
+export const createGroupSession = async (sessionCode) => {
   try {
-    const sessionKey = `group_session_${sessionCode}`;
-    const session = JSON.parse(localStorage.getItem(sessionKey));
-    
-    if (!session) {
-      return false;
-    }
-    
-    // Create user entry
-    const userId = Math.random().toString(36).substring(2, 10);
-    session.users[userId] = {
-      name: userName,
-      items: [],
-      joinedAt: new Date().toISOString(),
+    const session = {
+      code: sessionCode,
+      createdAt: new Date().toISOString(),
+      users: {},
     };
     
-    localStorage.setItem(sessionKey, JSON.stringify(session));
-    localStorage.setItem('current_user_id', userId);
-    localStorage.setItem('current_session_code', sessionCode);
+    const sessionRef = ref(database, `sessions/${sessionCode}`);
+    await set(sessionRef, session);
     
-    return true;
+    return session;
   } catch (error) {
-    console.error('Error adding user to session:', error);
-    return false;
+    console.error('Error creating session:', error);
+    throw error;
   }
 };
 
 /**
- * Get group session data
+ * Add user to group session (Firebase)
  * @param {string} sessionCode - Session code
- * @returns {Object|null} Session object
+ * @param {string} userName - User's name
+ * @returns {Promise<string>} User ID
  */
-export const getGroupSession = (sessionCode) => {
+export const addUserToSession = async (sessionCode, userName) => {
   try {
-    const sessionKey = `group_session_${sessionCode}`;
-    return JSON.parse(localStorage.getItem(sessionKey));
+    const sessionRef = ref(database, `sessions/${sessionCode}`);
+    const snapshot = await get(sessionRef);
+    
+    if (!snapshot.exists()) {
+      throw new Error('Session not found');
+    }
+    
+    // Create user entry
+    const userId = Math.random().toString(36).substring(2, 10);
+    const userRef = ref(database, `sessions/${sessionCode}/users/${userId}`);
+    
+    await set(userRef, {
+      name: userName,
+      items: [],
+      joinedAt: new Date().toISOString(),
+    });
+    
+    // Store locally for quick access
+    localStorage.setItem('current_user_id', userId);
+    localStorage.setItem('current_session_code', sessionCode);
+    
+    return userId;
+  } catch (error) {
+    console.error('Error adding user to session:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get group session data (Firebase)
+ * @param {string} sessionCode - Session code
+ * @returns {Promise<Object|null>} Session object
+ */
+export const getGroupSession = async (sessionCode) => {
+  try {
+    const sessionRef = ref(database, `sessions/${sessionCode}`);
+    const snapshot = await get(sessionRef);
+    
+    if (snapshot.exists()) {
+      return snapshot.val();
+    }
+    return null;
   } catch (error) {
     console.error('Error retrieving session:', error);
     return null;
@@ -194,40 +211,73 @@ export const getGroupSession = (sessionCode) => {
 };
 
 /**
- * Add item to group session cart
+ * Subscribe to real-time session updates (Firebase)
+ * @param {string} sessionCode - Session code
+ * @param {Function} callback - Callback function to receive updates
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToSession = (sessionCode, callback) => {
+  const sessionRef = ref(database, `sessions/${sessionCode}`);
+  
+  onValue(sessionRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.val());
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.error('Error subscribing to session:', error);
+    callback(null);
+  });
+  
+  // Return unsubscribe function
+  return () => off(sessionRef);
+};
+
+/**
+ * Add item to group session cart (Firebase)
  * @param {string} sessionCode - Session code
  * @param {string} userId - User ID
  * @param {Object} product - Product to add
- * @param {number} quantity - Quantity
+ * @param {number} quantity - Quantity change
  */
-export const addItemToGroupCart = (sessionCode, userId, product, quantity) => {
+export const addItemToGroupCart = async (sessionCode, userId, product, quantity) => {
   try {
-    const sessionKey = `group_session_${sessionCode}`;
-    const session = JSON.parse(localStorage.getItem(sessionKey));
+    const userItemsRef = ref(database, `sessions/${sessionCode}/users/${userId}/items`);
+    const snapshot = await get(userItemsRef);
     
-    if (!session || !session.users[userId]) {
-      return false;
+    let items = [];
+    if (snapshot.exists()) {
+      items = Object.entries(snapshot.val()).map(([key, value]) => ({ key, ...value }));
     }
     
-    const existingItem = session.users[userId].items.find(item => item.id === product.id);
+    const existingItemIndex = items.findIndex(item => item.id === product.id);
     
-    if (existingItem) {
+    if (existingItemIndex >= 0) {
+      const existingItem = items[existingItemIndex];
       existingItem.quantity += quantity;
       
       if (existingItem.quantity <= 0) {
-        session.users[userId].items = session.users[userId].items.filter(
-          item => item.id !== product.id
-        );
+        // Remove item
+        const itemRef = ref(database, `sessions/${sessionCode}/users/${userId}/items/${existingItem.key}`);
+        await remove(itemRef);
+      } else {
+        // Update quantity
+        const itemRef = ref(database, `sessions/${sessionCode}/users/${userId}/items/${existingItem.key}`);
+        await update(itemRef, { quantity: existingItem.quantity });
       }
     } else if (quantity > 0) {
-      const newItem = {
-        ...product,
-        quantity,
-      };
-      session.users[userId].items.push(newItem);
+      // Add new item
+      const newItemRef = ref(database, `sessions/${sessionCode}/users/${userId}/items/${product.id}`);
+      await set(newItemRef, {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        image: product.image,
+        quantity: quantity,
+      });
     }
     
-    localStorage.setItem(sessionKey, JSON.stringify(session));
     return true;
   } catch (error) {
     console.error('Error adding item to group cart:', error);
@@ -237,17 +287,19 @@ export const addItemToGroupCart = (sessionCode, userId, product, quantity) => {
 
 /**
  * Get all items in group session
- * @param {string} sessionCode - Session code
+ * @param {Object} session - Session object
  * @returns {Array} Array of items from all users
  */
-export const getGroupSessionItems = (sessionCode) => {
+export const getGroupSessionItems = (session) => {
   try {
-    const session = getGroupSession(sessionCode);
-    if (!session) return [];
+    if (!session || !session.users) return [];
     
     const items = [];
     Object.values(session.users).forEach(user => {
-      items.push(...user.items);
+      if (user.items) {
+        const userItems = Object.values(user.items);
+        items.push(...userItems);
+      }
     });
     return items;
   } catch (error) {
@@ -271,9 +323,12 @@ export const createGroupWhatsappMessage = (session, orderId, orderData) => {
   
   // Add items by user
   Object.entries(session.users).forEach(([userId, user]) => {
-    if (user.items.length > 0) {
+    // Convert Firebase object to array if needed
+    const userItems = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+    
+    if (userItems.length > 0) {
       message += `📋 ${user.name}:\n`;
-      user.items.forEach(item => {
+      userItems.forEach(item => {
         const itemTotal = item.quantity * item.price;
         totalAmount += itemTotal;
         message += `  • ${item.quantity}x ${item.name} (₦${itemTotal.toLocaleString()})\n`;
@@ -297,24 +352,34 @@ export const createGroupWhatsappMessage = (session, orderId, orderData) => {
  */
 export const sendGroupOrderToWhatsApp = (session, orderData) => {
   const message = createGroupWhatsappMessage(session, orderData.orderId, orderData);
+  
+  // URL encode the message for WhatsApp
   const encodedMessage = encodeURIComponent(message);
   
-  // Use provided phone number or fall back to config
-  const phone = orderData.whatsappNumber || WHATSAPP_CONFIG.phone;
+  // Use provided phone number
+  const phone = orderData.whatsappNumber;
   
+  // WhatsApp Click-to-Chat URL format
   const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+  
+  // Open WhatsApp in a new window/tab
   window.open(whatsappUrl, '_blank');
 };
 
 /**
- * Clear group session
+ * Clear group session (Firebase)
  * @param {string} sessionCode - Session code
  */
-export const clearGroupSession = (sessionCode) => {
+export const clearGroupSession = async (sessionCode) => {
   try {
-    localStorage.removeItem(`group_session_${sessionCode}`);
+    // Remove from Firebase
+    const sessionRef = ref(database, `sessions/${sessionCode}`);
+    await remove(sessionRef);
+    
+    // Clear local storage
     localStorage.removeItem('current_session_code');
     localStorage.removeItem('current_user_id');
+    
     return true;
   } catch (error) {
     console.error('Error clearing session:', error);

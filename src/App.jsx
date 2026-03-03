@@ -19,7 +19,7 @@ import {
   getGroupSessionItems,
   sendGroupOrderToWhatsApp,
   clearGroupSession,
-  createGroupWhatsappMessage,
+  subscribeToSession,
 } from './utils';
 
 /**
@@ -41,79 +41,79 @@ function App() {
 
   // Solo mode state
   const [cart, setCart] = useState([]);
-  
+
   // Modal state
   const [showCart, setShowCart] = useState(false);
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [showOrderSuccess, setShowOrderSuccess] = useState(false);
   const [lastOrderData, setLastOrderData] = useState(null);
 
-  // Auto-sync group session data
+  // Real-time sync for group session data (Firebase)
   useEffect(() => {
     if (isGroupMode && sessionCode) {
-      // Initial load
-      const initialSession = getGroupSession(sessionCode);
-      setGroupSession(initialSession);
-      
-      // Set up interval for updates
-      const interval = setInterval(() => {
-        const updatedSession = getGroupSession(sessionCode);
-        setGroupSession(updatedSession);
-      }, 1000); // Sync every second
-      
-      return () => clearInterval(interval);
+      const unsubscribe = subscribeToSession(sessionCode, (sessionData) => {
+        setGroupSession(sessionData);
+      });
+
+      return () => unsubscribe();
     }
   }, [isGroupMode, sessionCode]);
 
   // Handle session creation
-  const handleCreateSession = (code) => {
+  const handleCreateSession = async (code) => {
     const userNameInput = document.getElementById('groupUserName')?.value || 'User';
     if (!userNameInput.trim()) {
       alert('Please enter your name');
       return;
     }
 
-    createGroupSession(code);
-    addUserToSession(code, userNameInput);
-    
-    const userId = localStorage.getItem('current_user_id');
-    const session = getGroupSession(code);
-    
-    setSessionCode(code);
-    setCurrentUserId(userId);
-    setUserName(userNameInput);
-    setGroupSession(session);
-    setIsGroupMode(true);
-    setModeSelected(true);
-    setShowSessionManager(false);
+    try {
+      await createGroupSession(code);
+      const userId = await addUserToSession(code, userNameInput);
+      const session = await getGroupSession(code);
+
+      setSessionCode(code);
+      setCurrentUserId(userId);
+      setUserName(userNameInput);
+      setGroupSession(session);
+      setIsGroupMode(true);
+      setModeSelected(true);
+      setShowSessionManager(false);
+    } catch (error) {
+      console.error('Error creating session:', error);
+      alert('Failed to create session. Please try again.');
+    }
   };
 
   // Handle session joining
-  const handleJoinSession = (code) => {
+  const handleJoinSession = async (code) => {
     const userNameInput = document.getElementById('groupUserName')?.value || 'User';
     if (!userNameInput.trim()) {
       alert('Please enter your name');
       return;
     }
 
-    const session = getGroupSession(code);
-    if (!session) {
-      alert('Session not found. Check the code and try again.');
-      return;
-    }
+    try {
+      const session = await getGroupSession(code);
+      if (!session) {
+        alert('Session not found. Check the code and try again.');
+        return;
+      }
 
-    addUserToSession(code, userNameInput);
-    
-    const userId = localStorage.getItem('current_user_id');
-    const updatedSession = getGroupSession(code);
-    
-    setSessionCode(code);
-    setCurrentUserId(userId);
-    setUserName(userNameInput);
-    setGroupSession(updatedSession);
-    setIsGroupMode(true);
-    setModeSelected(true);
-    setShowSessionManager(false);
+      const userId = await addUserToSession(code, userNameInput);
+      const updatedSession = await getGroupSession(code);
+
+      setSessionCode(code);
+      setCurrentUserId(userId);
+      setUserName(userNameInput);
+      setGroupSession(updatedSession);
+      setIsGroupMode(true);
+      setModeSelected(true);
+      setShowSessionManager(false);
+    } catch (error) {
+      console.error('Error joining session:', error);
+      alert('Failed to join session. Please try again.');
+    }
   };
 
   // Handle solo mode
@@ -156,34 +156,18 @@ function App() {
   }, []);
 
   // Handle adding items to group cart
-  const handleAddToGroupCart = useCallback((product, quantityChange = 1) => {
+  const handleAddToGroupCart = useCallback(async (product, quantityChange = 1) => {
     if (!sessionCode || !currentUserId) {
       alert('Session error: Please refresh and try again');
       return;
     }
-    
-    // Get current session data
-    const session = getGroupSession(sessionCode);
-    if (!session || !session.users[currentUserId]) {
-      alert('Session not found. Please refresh and rejoin.');
-      return;
-    }
-    
-    const user = session.users[currentUserId];
-    const existingItem = user.items.find(item => item.id === product.id);
-    const currentQty = existingItem?.quantity || 0;
 
-    // Handle remove all (quantityChange = 0)
-    if (quantityChange === 0) {
-      addItemToGroupCart(sessionCode, currentUserId, product, -currentQty);
-    } else {
-      // Normal add/subtract
-      addItemToGroupCart(sessionCode, currentUserId, product, quantityChange);
+    try {
+      await addItemToGroupCart(sessionCode, currentUserId, product, quantityChange);
+    } catch (error) {
+      console.error('Error adding to group cart:', error);
+      alert('Failed to update cart. Please try again.');
     }
-    
-    // Force immediate update of local state
-    const updatedSession = getGroupSession(sessionCode);
-    setGroupSession(updatedSession);
   }, [sessionCode, currentUserId]);
 
   // Handle removing item from solo cart
@@ -194,47 +178,31 @@ function App() {
   }, []);
 
   // Handle removing item from group cart
-  const handleRemoveGroupItem = useCallback((productId) => {
-    if (!sessionCode || !currentUserId) return;
-    
-    const session = getGroupSession(sessionCode);
-    if (!session || !session.users[currentUserId]) return;
-    
-    const user = session.users[currentUserId];
-    const item = user.items.find(i => i.id === productId);
-    
-    if (item) {
-      // Remove all quantity by passing negative quantity
-      addItemToGroupCart(sessionCode, currentUserId, item, -item.quantity);
-      const updatedSession = getGroupSession(sessionCode);
-      setGroupSession(updatedSession);
-    }
-  }, [sessionCode, currentUserId]);
+  const handleRemoveGroupItem = useCallback(async (productId) => {
+    if (!sessionCode || !currentUserId || !groupSession) return;
 
-  // Handle quantity change in group cart
-  const handleGroupQuantityChange = useCallback((productId, change) => {
-    if (!sessionCode || !currentUserId) return;
-    
-    const session = getGroupSession(sessionCode);
-    if (!session || !session.users[currentUserId]) return;
-    
-    const user = session.users[currentUserId];
-    const item = user.items.find(i => i.id === productId);
-    
-    if (item) {
-      addItemToGroupCart(sessionCode, currentUserId, item, change);
-      const updatedSession = getGroupSession(sessionCode);
-      setGroupSession(updatedSession);
+    try {
+      const user = groupSession.users[currentUserId];
+      if (!user || !user.items) return;
+
+      const itemsArray = Array.isArray(user.items) ? user.items : Object.values(user.items);
+      const item = itemsArray.find(i => i.id === productId);
+
+      if (item) {
+        await addItemToGroupCart(sessionCode, currentUserId, item, -item.quantity);
+      }
+    } catch (error) {
+      console.error('Error removing item:', error);
     }
-  }, [sessionCode, currentUserId]);
+  }, [sessionCode, currentUserId, groupSession]);
 
   // Handle quantity change in solo cart
-  const handleQuantityChange = useCallback((productId, changeAmount) => {
+  const handleQuantityChange = useCallback((productId, change) => {
     setCart((prevCart) => {
-      const item = prevCart.find(item => item.id === productId);
+      const item = prevCart.find(i => i.id === productId);
       if (!item) return prevCart;
 
-      const newQuantity = item.quantity + changeAmount;
+      const newQuantity = item.quantity + change;
 
       if (newQuantity <= 0) {
         return prevCart.filter(item => item.id !== productId);
@@ -247,6 +215,25 @@ function App() {
       );
     });
   }, []);
+
+  // Handle quantity change in group cart
+  const handleGroupQuantityChange = useCallback(async (productId, change) => {
+    if (!sessionCode || !currentUserId || !groupSession) return;
+
+    try {
+      const user = groupSession.users[currentUserId];
+      if (!user || !user.items) return;
+
+      const itemsArray = Array.isArray(user.items) ? user.items : Object.values(user.items);
+      const item = itemsArray.find(i => i.id === productId);
+
+      if (item) {
+        await addItemToGroupCart(sessionCode, currentUserId, item, change);
+      }
+    } catch (error) {
+      console.error('Error changing quantity:', error);
+    }
+  }, [sessionCode, currentUserId, groupSession]);
 
   // Handle solo order submission
   const handleOrderSubmit = useCallback((orderData) => {
@@ -263,7 +250,7 @@ function App() {
     setShowOrderSuccess(true);
 
     setTimeout(() => {
-      sendToWhatsApp(completeOrderData); // whatsappNumber is already in orderData
+      sendToWhatsApp(completeOrderData);
       setCart([]);
       setModeSelected(false);
       setShowSessionManager(true);
@@ -271,83 +258,120 @@ function App() {
   }, []);
 
   // Handle group order submission
-  const handleGroupOrderSubmit = useCallback((orderData) => {
-    const orderId = generateOrderId();
-    
-    const session = getGroupSession(sessionCode);
-    
-    sendGroupOrderToWhatsApp(session, {
-      orderId,
-      date: orderData.date,
-      time: orderData.time,
-      whatsappNumber: orderData.whatsappNumber, // Pass phone number from form
-    });
+  const handleGroupOrderSubmit = useCallback(async (orderData) => {
+    try {
+      const orderId = generateOrderId();
 
-    setLastOrderData({
-      orderId,
-      type: 'group',
-      userCount: Object.keys(session.users).length,
-    });
+      sendGroupOrderToWhatsApp(groupSession, {
+        orderId,
+        date: orderData.date,
+        time: orderData.time,
+        whatsappNumber: orderData.whatsappNumber,
+      });
 
-    setShowOrderSuccess(true);
+      setLastOrderData({
+        orderId,
+        type: 'group',
+        userCount: Object.keys(groupSession.users).length,
+      });
 
-    setTimeout(() => {
-      clearGroupSession(sessionCode);
-      setIsGroupMode(false);
-      setModeSelected(false);
-      setShowSessionManager(true);
-      setSessionCode(null);
-      setCurrentUserId(null);
-      setGroupSession(null);
-    }, 3000);
-  }, [sessionCode]);
+      setShowOrderSuccess(true);
 
-  const handleCloseOrderSuccess = useCallback(() => {
+      setTimeout(async () => {
+        await clearGroupSession(sessionCode);
+        setIsGroupMode(false);
+        setModeSelected(false);
+        setShowSessionManager(true);
+        setSessionCode(null);
+        setCurrentUserId(null);
+        setGroupSession(null);
+      }, 3000);
+    } catch (error) {
+      console.error('Error submitting group order:', error);
+      alert('Failed to submit order. Please try again.');
+    }
+  }, [sessionCode, groupSession]);
+
+  // Handle closing order success modal
+  const handleCloseOrderSuccess = async () => {
     setShowOrderSuccess(false);
-    if (!isGroupMode) {
-      setCart([]);
-    }
-  }, [isGroupMode]);
-
-  // Handle leaving group session
-  const handleLeaveSession = () => {
-    if (window.confirm('Are you sure you want to leave this group session?')) {
-      clearGroupSession(sessionCode);
-      setIsGroupMode(false);
-      setModeSelected(false);
-      setShowSessionManager(true);
-      setSessionCode(null);
-      setCurrentUserId(null);
-      setGroupSession(null);
-    }
-  };
-
-  // Handle home button click
-  const handleHomeClick = () => {
-    const confirmHome = window.confirm('Go back to home? (Your current session/cart will be reset)');
-    if (confirmHome) {
-      // Clear everything and go back to mode selection
-      if (sessionCode) {
-        clearGroupSession(sessionCode);
+    
+    // Reset to dashboard
+    if (isGroupMode) {
+      // Group mode: clear session and reset
+      try {
+        await clearGroupSession(sessionCode);
+      } catch (error) {
+        console.error('Error clearing session:', error);
       }
+      setIsGroupMode(false);
       setSessionCode(null);
       setCurrentUserId(null);
       setUserName('');
       setGroupSession(null);
-      setIsGroupMode(false);
-      setModeSelected(false);
+    } else {
+      // Solo mode: clear cart
       setCart([]);
-      setShowCart(false);
-      setShowOrderForm(false);
-      setShowOrderSuccess(false);
-      setShowSessionManager(true);
+    }
+    
+    // Reset UI and show session manager
+    setModeSelected(false);
+    setShowOrderSuccess(false);
+    setShowOrderForm(false);
+    setShowCart(false);
+    setShowSessionManager(true);
+    setLastOrderData(null);
+  };
+
+  // Handle leaving group session
+  const handleLeaveSession = async () => {
+    if (window.confirm('Are you sure you want to leave this group session?')) {
+      try {
+        await clearGroupSession(sessionCode);
+        setIsGroupMode(false);
+        setModeSelected(false);
+        setShowSessionManager(true);
+        setSessionCode(null);
+        setCurrentUserId(null);
+        setUserName('');
+        setGroupSession(null);
+      } catch (error) {
+        console.error('Error leaving session:', error);
+      }
+    }
+  };
+
+  // Handle home click
+  const handleHomeClick = async () => {
+    const confirmHome = window.confirm('Go back to home? (Your current session/cart will be reset)');
+    if (confirmHome) {
+      try {
+        if (sessionCode) {
+          await clearGroupSession(sessionCode);
+        }
+        setSessionCode(null);
+        setCurrentUserId(null);
+        setUserName('');
+        setGroupSession(null);
+        setIsGroupMode(false);
+        setModeSelected(false);
+        setCart([]);
+        setShowCart(false);
+        setShowOrderForm(false);
+        setShowOrderSuccess(false);
+        setShowSessionManager(true);
+      } catch (error) {
+        console.error('Error clearing session:', error);
+      }
     }
   };
 
   // Get current user's items for product display
   const currentUserItems = useMemo(() => {
     if (isGroupMode && groupSession && currentUserId) {
-      return groupSession.users?.[currentUserId]?.items || [];
+      const items = groupSession.users?.[currentUserId]?.items || [];
+      // Convert Firebase object to array if needed
+      return Array.isArray(items) ? items : Object.values(items);
     }
     return cart;
   }, [isGroupMode, groupSession, currentUserId, cart]);
@@ -356,7 +380,9 @@ function App() {
   const cartItemCount = useMemo(() => {
     if (isGroupMode && groupSession && currentUserId) {
       const items = groupSession.users?.[currentUserId]?.items || [];
-      return items.reduce((sum, item) => sum + item.quantity, 0);
+      // Convert Firebase object to array if needed
+      const itemsArray = Array.isArray(items) ? items : Object.values(items);
+      return itemsArray.reduce((sum, item) => sum + item.quantity, 0);
     }
     return cart.reduce((sum, item) => sum + item.quantity, 0);
   }, [isGroupMode, groupSession, currentUserId, cart]);
@@ -399,11 +425,13 @@ function App() {
         cartCount={cartItemCount}
         onCartClick={() => setShowCart(!showCart)}
         onHomeClick={handleHomeClick}
+        sessionCode={isGroupMode ? sessionCode : null}
+        userName={isGroupMode ? userName : null}
       />
 
       {/* Group Users Panel - Shows all members and their orders */}
       {isGroupMode && modeSelected && groupSession && (
-        <GroupUsersPanel 
+        <GroupUsersPanel
           session={groupSession}
           currentUserId={currentUserId}
         />

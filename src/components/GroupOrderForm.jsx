@@ -14,33 +14,44 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
   const [whatsappNumber, setWhatsappNumber] = useState(WHATSAPP_CONFIG.phone);
 
   useEffect(() => {
-    // Fetch session data
-    const sessionData = getGroupSession(sessionCode);
-    setSession(sessionData);
+    // Fetch session data asynchronously
+    const loadSession = async () => {
+      try {
+        const sessionData = await getGroupSession(sessionCode);
+        setSession(sessionData);
 
-    // Calculate total
-    if (sessionData) {
-      let total = 0;
-      Object.values(sessionData.users).forEach(user => {
-        user.items.forEach(item => {
-          total += item.quantity * item.price;
-        });
-      });
-      setTotalAmount(total);
-    }
+        // Calculate total
+        if (sessionData && sessionData.users) {
+          let total = 0;
+          Object.values(sessionData.users).forEach(user => {
+            // Convert Firebase object to array if needed
+            const items = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+            items.forEach(item => {
+              total += item.quantity * item.price;
+            });
+          });
+          setTotalAmount(total);
+        }
+      } catch (error) {
+        console.error('Error loading session:', error);
+      }
+    };
+    loadSession();
   }, [sessionCode]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    if (!session || Object.keys(session.users).length === 0) {
+    if (!session || !session.users || Object.keys(session.users).length === 0) {
       alert('No sessions found');
       return;
     }
 
     let hasItems = false;
     Object.values(session.users).forEach(user => {
-      if (user.items.length > 0) hasItems = true;
+      // Convert Firebase object to array if needed
+      const items = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+      if (items.length > 0) hasItems = true;
     });
 
     if (!hasItems) {
@@ -73,7 +84,7 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
     }, 500);
   };
 
-  if (!session) {
+  if (!session || !session.users) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-slide-in">
@@ -133,7 +144,11 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
           <div className="space-y-4">
             <h3 className="font-bold text-lg text-gray-800">📋 Order Details</h3>
             
-            {userList.map((user, index) => (
+            {userList.map((user, index) => {
+              // Convert Firebase object to array if needed
+              const userItems = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+              
+              return (
               <div
                 key={index}
                 className="bg-gray-50 rounded-xl p-4 border-l-4 border-blue-400"
@@ -142,9 +157,9 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
                   👤 {user.name}
                 </h4>
                 
-                {user.items.length > 0 ? (
+                {userItems.length > 0 ? (
                   <div className="space-y-2 ml-4">
-                    {user.items.map((item) => (
+                    {userItems.map((item) => (
                       <div
                         key={item.id}
                         className="flex items-center justify-between text-sm"
@@ -163,7 +178,8 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
                   <p className="text-sm text-gray-500 italic">No items yet</p>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
 
           {/* Summary Stats */}
@@ -175,7 +191,10 @@ const GroupOrderForm = ({ sessionCode, onSubmit, onClose }) => {
             <div className="bg-pink-50 rounded-lg p-3 border-l-4 border-pink-400 text-center">
               <p className="text-xs text-pink-600 font-semibold mb-1">📦 Items</p>
               <p className="text-2xl font-bold text-pink-800">
-                {userList.reduce((sum, user) => sum + user.items.length, 0)}
+                {userList.reduce((sum, user) => {
+                  const itemsArray = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+                  return sum + itemsArray.length;
+                }, 0)}
               </p>
             </div>
             <div className="bg-green-50 rounded-lg p-3 border-l-4 border-green-400 text-center">

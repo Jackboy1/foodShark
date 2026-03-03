@@ -25,6 +25,7 @@ const GroupUsersPanel = ({ session, currentUserId }) => {
   const userEntries = Object.entries(session.users);
 
   const calculateUserTotal = (items) => {
+    if (!items || !Array.isArray(items)) return 0;
     return items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
   };
 
@@ -50,7 +51,9 @@ const GroupUsersPanel = ({ session, currentUserId }) => {
           {userEntries.map(([userId, user], index) => {
             const isCurrentUser = userId === currentUserId;
             const colorClass = userColors[index % userColors.length];
-            const userTotal = calculateUserTotal(user.items);
+            // Convert Firebase object to array if needed
+            const userItems = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+            const userTotal = calculateUserTotal(userItems);
 
             return (
               <div
@@ -76,7 +79,7 @@ const GroupUsersPanel = ({ session, currentUserId }) => {
                           )}
                         </p>
                         <p className="text-xs opacity-90">
-                          {user.items.length} {user.items.length === 1 ? 'item' : 'items'}
+                        {userItems.length} {userItems.length === 1 ? 'item' : 'items'}
                         </p>
                       </div>
                     </div>
@@ -85,13 +88,13 @@ const GroupUsersPanel = ({ session, currentUserId }) => {
 
                 {/* User Items */}
                 <div className="bg-gray-50 p-3">
-                  {user.items.length === 0 ? (
+                  {userItems.length === 0 ? (
                     <p className="text-sm text-gray-500 italic text-center py-2">
                       No items yet
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {user.items.map((item) => (
+                      {userItems.map((item) => (
                         <div
                           key={item.id}
                           className="bg-white rounded-lg p-2 flex items-center justify-between border border-gray-200"
@@ -144,12 +147,18 @@ const GroupUsersPanel = ({ session, currentUserId }) => {
             <div>
               <p className="text-xs text-gray-600 font-semibold">GROUP TOTAL</p>
               <p className="text-sm text-gray-700">
-                {userEntries.reduce((sum, [, user]) => sum + user.items.length, 0)} items
+                {userEntries.reduce((sum, [, user]) => {
+                  const items = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+                  return sum + items.length;
+                }, 0)} items
               </p>
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-blue-600">
-                ₦{userEntries.reduce((sum, [, user]) => sum + calculateUserTotal(user.items), 0).toLocaleString()}
+                ₦{userEntries.reduce((sum, [, user]) => {
+                  const items = Array.isArray(user.items) ? user.items : (user.items ? Object.values(user.items) : []);
+                  return sum + calculateUserTotal(items);
+                }, 0).toLocaleString()}
               </p>
             </div>
           </div>

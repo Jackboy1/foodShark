@@ -1,11 +1,30 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 /**
  * ProductCard Component
  * Displays individual product with image, price, and quantity controls
  */
 const ProductCard = ({ product, onAddToCart, cartItem = null }) => {
+  const [isEditingQuantity, setIsEditingQuantity] = useState(false);
+  const [editValue, setEditValue] = useState(cartItem?.quantity || 0);
+  
   const quantity = cartItem?.quantity || 0;
+
+  const handleQuantitySubmit = (e) => {
+    e.preventDefault();
+    const newQuantity = parseInt(editValue) || 0;
+    
+    if (newQuantity <= 0) {
+      onAddToCart(product, 0); // Remove item
+    } else {
+      // Calculate the difference and apply it
+      const diff = newQuantity - quantity;
+      onAddToCart(product, diff);
+    }
+    
+    setIsEditingQuantity(false);
+    setEditValue(quantity);
+  };
 
   return (
     <div className="card overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
@@ -43,20 +62,43 @@ const ProductCard = ({ product, onAddToCart, cartItem = null }) => {
           </button>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between bg-gray-100 rounded-lg p-2">
+            <div className="flex items-center justify-between bg-gray-100 rounded-lg p-2 gap-2">
               <button
                 onClick={() => onAddToCart(product, -1)}
-                className="text-xl font-bold text-orange-500 hover:text-orange-700 transition-colors"
+                className="text-xl font-bold text-orange-500 hover:text-orange-700 transition-colors flex-shrink-0"
                 aria-label="Decrease quantity"
               >
                 −
               </button>
-              <span className="text-lg font-bold text-gray-800 min-w-[30px] text-center">
-                {quantity}
-              </span>
+              
+              {isEditingQuantity ? (
+                <form onSubmit={handleQuantitySubmit} className="flex-1">
+                  <input
+                    type="number"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    min="0"
+                    autoFocus
+                    onBlur={handleQuantitySubmit}
+                    className="w-full text-center font-bold text-gray-800 border-2 border-orange-400 rounded px-2 py-1 focus:outline-none focus:border-orange-600"
+                  />
+                </form>
+              ) : (
+                <span 
+                  onClick={() => {
+                    setIsEditingQuantity(true);
+                    setEditValue(quantity);
+                  }}
+                  className="text-lg font-bold text-gray-800 min-w-[50px] text-center cursor-pointer hover:bg-white rounded px-2 py-1 transition-colors flex-1"
+                  title="Click to edit quantity"
+                >
+                  {quantity}
+                </span>
+              )}
+              
               <button
                 onClick={() => onAddToCart(product, 1)}
-                className="text-xl font-bold text-green-500 hover:text-green-700 transition-colors"
+                className="text-xl font-bold text-green-500 hover:text-green-700 transition-colors flex-shrink-0"
                 aria-label="Increase quantity"
               >
                 +
