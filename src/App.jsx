@@ -20,6 +20,7 @@ import {
   sendGroupOrderToWhatsApp,
   clearGroupSession,
   subscribeToSession,
+  markOrderAsSubmitted,
 } from './utils';
 
 /**
@@ -47,17 +48,35 @@ function App() {
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [showOrderSuccess, setShowOrderSuccess] = useState(false);
   const [lastOrderData, setLastOrderData] = useState(null);
+  const [showOrderSubmittedNotification, setShowOrderSubmittedNotification] = useState(false);
+  const [orderSubmittedByUser, setOrderSubmittedByUser] = useState(null);
 
   // Real-time sync for group session data (Firebase)
   useEffect(() => {
     if (isGroupMode && sessionCode) {
       const unsubscribe = subscribeToSession(sessionCode, (sessionData) => {
         setGroupSession(sessionData);
+
+        // Check if someone submitted an order
+        if (sessionData && sessionData.orderSubmitted) {
+          const submittedBy = sessionData.orderSubmittedBy;
+          
+          // If it's not from current user, show notification
+          if (submittedBy !== currentUserId) {
+            setOrderSubmittedByUser(sessionData.orderSubmittedUser);
+            setShowOrderSubmittedNotification(true);
+            
+            // Auto-redirect after 4 seconds
+            setTimeout(() => {
+              handleCloseOrderSuccess();
+            }, 4000);
+          }
+        }
       });
 
       return () => unsubscribe();
     }
-  }, [isGroupMode, sessionCode]);
+  }, [isGroupMode, sessionCode, currentUserId]);
 
   // Handle session creation
   const handleCreateSession = async (code) => {
@@ -268,6 +287,9 @@ function App() {
         time: orderData.time,
         whatsappNumber: orderData.whatsappNumber,
       });
+
+      // Mark order as submitted in Firebase - notifies other users
+      await markOrderAsSubmitted(sessionCode, currentUserId, userName);
 
       setLastOrderData({
         orderId,
@@ -533,6 +555,33 @@ function App() {
           orderData={lastOrderData}
           onClose={handleCloseOrderSuccess}
         />
+      )}
+
+      {/* Order Submitted Notification (for other users in group) */}
+      {showOrderSubmittedNotification && orderSubmittedByUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 transition-all">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-slide-in overflow-hidden">
+            {/* Notification Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-8 text-center">
+              <div className="text-6xl mb-4">📤</div>
+              <h2 className="text-2xl font-bold mb-2">Order Submitted!</h2>
+              <p className="text-blue-100">{orderSubmittedByUser} has sent the order to WhatsApp</p>
+            </div>
+
+            {/* Notification Body */}
+            <div className="p-8 space-y-4 text-center">
+              <p className="text-gray-700 text-lg">
+                🎉 The group order has been successfully submitted!
+              </p>
+              <p className="text-gray-600 text-sm">
+                You will be redirected to the dashboard shortly...
+              </p>
+              <div className="mt-6">
+                <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Mobile-only floating action button for solo checkout */}

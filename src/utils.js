@@ -386,3 +386,26 @@ export const clearGroupSession = async (sessionCode) => {
     return false;
   }
 };
+
+/**
+ * Mark order as submitted in the session
+ * Notifies all other users that order has been sent
+ * @param {string} sessionCode - Session code
+ * @param {string} userId - User ID who submitted
+ * @param {string} userName - User name who submitted
+ */
+export const markOrderAsSubmitted = async (sessionCode, userId, userName) => {
+  try {
+    const sessionRef = ref(database, `sessions/${sessionCode}`);
+    await update(sessionRef, {
+      orderSubmitted: true,
+      orderSubmittedBy: userId,
+      orderSubmittedUser: userName,
+      orderSubmittedAt: new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    console.error('Error marking order as submitted:', error);
+    return false;
+  }
+};
